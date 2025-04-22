@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Broken Link Checker</title>
+  <meta name="robots" content="noindex, nofollow"> <!-- Blocks search engines -->
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    .ok { color: green; }
+    .broken { color: red; }
+    button { margin-right: 10px; }
+  </style>
+</head>
+<body>
+  <script>
+    // Simple JS Password Prompt
+    const password = "mySecret123"; // 🔒 Change this to your secret password
+    if (prompt("Enter password to access link checker:") !== password) {
+      document.body.innerHTML = "<h2>Access denied.</h2>";
+      throw new Error("Unauthorized access");
+    }
+  </script>
+
+  <h1>Broken Link Checker</h1>
+  <button onclick="startCheck()">Start Checking</button>
+  <button onclick="downloadCSV()">Download CSV</button>
+  <ul id="results"></ul>
+
+  <script>
+    const MAX_DEPTH = 2; // Limit crawling depth
+    const results = [];
+
+    async function startCheck() {
+      const baseUrl = 'https://yourdomain.com'; // ✅ Replace with your domain
+      const visited = new Set();
+      const queue = [{ url: baseUrl, depth: 0 }];
+      const resultsEl = document.getElementById('results');
+      resultsEl.innerHTML = '';
+      results.length = 0;
+
+      while (queue.length > 0) {
+        const { url: currentUrl, depth } = queue.shift();
+        if (visited.has(currentUrl)) continue;
+        visited.add(currentUrl);
+
+        if (depth > MAX_DEPTH) continue;
+
+        try {
+          const res = await fetch(currentUrl);
+          if (!res.ok) {
+            showResult(currentUrl, res.status, false);
+            continue;
+          }
+
+          const html = await res.text();
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const links = Array.from(doc.querySelectorAll('a'));
+
+          for (const link of links) {
+            let href = link.getAttribute('href');
+            if (!href || href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('#')) continue;
+
+            const linkUrl = new URL(href, currentUrl).href;
+
+            if (!linkUrl.startsWith(baseUrl)) continue;
+
+            try {
+              const r = await fetch(linkUrl, { method: 'HEAD' });
+              if (!r.ok) {
+                showResult(linkUrl, r.status, false);
+              } else {
+                showResult(linkUrl, r.status, true);
+
+                if (!visited.has(linkUrl) && !queue.some(q => q.url === linkUrl)) {
+                  queue.push({ url: linkUrl, depth: depth + 1 });
+                }
+              }
+            } catch (err) {
+              showResult(linkUrl, err.message, false);
+            }
+          }
+
+        } catch (err) {
+          showResult(currentUrl, err.message, false);
+        }
+      }
+    }
+
+    function showResult(url, status, ok) {
+      const li = document.createElement('li');
+      li.className = ok ? 'ok' : 'broken';
+      li.textContent = `${ok ? '✅' : '❌'} [${status}] ${url}`;
+      document.getElementById('results').appendChild(li);
+
+      results.push({ url, status, ok });
+    }
+
+    function downloadCSV() {
+      if (results.length === 0) {
+        alert("No results to download yet!");
+        return;
+      }
+
+      let csvContent = "data:text/csv;charset=utf-8,Status,HTTP Status,URL\n";
+      results.forEach(r => {
+        const status = r.ok ? "OK" : "Broken";
+        csvContent += `${status},${r.status},${r.url}\n`;
+      });
+
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", "broken-links-report.csv");
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>
